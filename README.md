@@ -127,16 +127,16 @@ flowchart TB
 ## Screenshots
 
 **Landing UI**
-![Landing UI](docs/screenshots/landing.png)
+![Landing UI](docs/screenshots/image1.png)
 
 **Trip Plan - Amravati to Goa (₹8,000 budget)**
-![Trip Itinerary](docs/screenshots/itinerary.png)
+![Trip Itinerary](docs/screenshots/image2.png)
 
 **Route Map with Google Maps tiles**
-![Route Map](docs/screenshots/route_map.png)
+![Route Map](docs/screenshots/image3.png)
 
 **API Key Settings**
-![Settings Modal](docs/screenshots/settings.png)
+![Settings Modal](docs/screenshots/image4.png)
 
 
 ## Requirements
