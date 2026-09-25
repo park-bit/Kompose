@@ -19,12 +19,11 @@ export default function TravelPlanner() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [slots, setSlots] = useState<TravelSlots>({
-    adults: 1,
-    children: 0,
-    car_type: "sedan",
-    mode_preference: "mixed",
-  });
+  const [mode, setMode] = useState<string>("mixed");
+  const [budget, setBudget] = useState<number | undefined>(undefined);
+  const [carType, setCarType] = useState<string>("sedan");
+  const [adults, setAdults] = useState<number>(1);
+  const [children, setChildren] = useState<number>(0);
   const [response, setResponse] = useState<ChatResponse | null>(null);
   const [activeTab, setActiveTab] = useState<"plan" | "map">("plan");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -32,21 +31,6 @@ export default function TravelPlanner() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
-
-  useEffect(() => {
-    // Detect and synchronize browser-restored form values (e.g. on F5 reload)
-    const modeEl = document.getElementById("mode-select") as HTMLSelectElement | null;
-    const budgetEl = document.getElementById("budget-input") as HTMLInputElement | null;
-    const vehicleEl = document.getElementById("vehicle-select") as HTMLSelectElement | null;
-    if (modeEl?.value && modeEl.value !== slots.mode_preference) {
-      setSlots((s) => ({
-        ...s,
-        mode_preference: modeEl.value as any,
-        ...(budgetEl?.value ? { budget: Number(budgetEl.value) } : {}),
-        ...(vehicleEl?.value ? { car_type: vehicleEl.value as any } : {}),
-      }));
-    }
-  }, []);
 
   async function handleSend() {
     const text = input.trim();
@@ -56,12 +40,20 @@ export default function TravelPlanner() {
     setInput("");
     setLoading(true);
 
+    const currentSlots: TravelSlots = {
+      mode_preference: mode as any,
+      budget,
+      car_type: carType as any,
+      adults,
+      children,
+    };
+
     try {
-      const res = await sendChatMessage(text, sessionId, slots);
+      const res = await sendChatMessage(text, sessionId, currentSlots);
       setSessionId(res.session_id);
       setResponse(res);
-      if (res.roadmap?.budget && !slots.budget) {
-        setSlots((s) => ({ ...s, budget: res.roadmap?.budget }));
+      if (res.roadmap?.budget && !budget) {
+        setBudget(res.roadmap.budget);
       }
       setMessages((prev) => [...prev, { role: "assistant", content: res.reply }]);
     } catch (err) {
@@ -82,12 +74,8 @@ export default function TravelPlanner() {
     }
   }
 
-  const showCarOption = Boolean(
-    slots.mode_preference === "car" ||
-    slots.mode_preference === "mixed" ||
-    slots.mode_preference === "bus_car" ||
-    slots.mode_preference === "flight_car"
-  );
+  const showCarOption =
+    mode === "car" || mode === "mixed" || mode === "bus_car" || mode === "flight_car";
 
   return (
     <div className="flex h-screen bg-[#090a0f] text-slate-100 overflow-hidden font-sans antialiased selection:bg-violet-600 selection:text-white">
@@ -156,24 +144,9 @@ export default function TravelPlanner() {
             <span className="font-mono text-[11px] uppercase tracking-wider">Mode</span>
             <select
               id="mode-select"
-              autoComplete="off"
-              value={slots.mode_preference || "mixed"}
-              onFocus={(e) => {
-                if (e.target.value !== slots.mode_preference) {
-                  setSlots((s) => ({ ...s, mode_preference: e.target.value as any }));
-                }
-              }}
-              onInput={(e) => {
-                const val = (e.target as HTMLSelectElement).value as any;
-                if (val !== slots.mode_preference) {
-                  setSlots((s) => ({ ...s, mode_preference: val }));
-                }
-              }}
-              onChange={(e) => {
-                const val = e.target.value as any;
-                setSlots((s) => ({ ...s, mode_preference: val }));
-              }}
-              className="bg-[#141721] border border-white/[0.08] rounded-md px-2 py-1 text-slate-200 focus:outline-none focus:border-violet-500 font-sans text-xs"
+              value={mode}
+              onChange={(e) => setMode(e.target.value)}
+              className="bg-[#141721] border border-white/[0.08] rounded-md px-2 py-1 text-slate-200 focus:outline-none focus:border-violet-500 font-sans text-xs cursor-pointer"
             >
               <option value="mixed">Mixed (All Modes)</option>
               <option value="train_bus">Mix: Train + Bus</option>
@@ -194,35 +167,28 @@ export default function TravelPlanner() {
               <span className="text-slate-500 text-xs font-mono mr-1">₹</span>
               <input
                 id="budget-input"
-                autoComplete="off"
                 type="number"
                 placeholder="Flexible"
                 min={0}
                 step={500}
-                value={slots.budget ?? ""}
+                value={budget ?? ""}
                 onChange={(e) =>
-                  setSlots((s) => ({
-                    ...s,
-                    budget: e.target.value !== "" ? Math.max(0, Number(e.target.value)) : undefined,
-                  }))
+                  setBudget(e.target.value !== "" ? Math.max(0, Number(e.target.value)) : undefined)
                 }
                 className="w-20 bg-transparent text-slate-200 focus:outline-none font-mono text-xs placeholder:text-slate-600"
               />
             </div>
           </div>
 
-          {/* Car type: show if mode is car or mixed or includes car */}
+          {/* Car type: show only if mode is car, mixed, or mixed car combination */}
           {showCarOption && (
             <div className="flex items-center gap-1.5 text-slate-400">
               <span className="font-mono text-[11px] uppercase tracking-wider">Vehicle</span>
               <select
                 id="vehicle-select"
-                autoComplete="off"
-                value={slots.car_type || "sedan"}
-                onChange={(e) =>
-                  setSlots((s) => ({ ...s, car_type: e.target.value as any }))
-                }
-                className="bg-[#141721] border border-white/[0.08] rounded-md px-2 py-1 text-slate-200 focus:outline-none focus:border-violet-500 font-sans text-xs"
+                value={carType}
+                onChange={(e) => setCarType(e.target.value)}
+                className="bg-[#141721] border border-white/[0.08] rounded-md px-2 py-1 text-slate-200 focus:outline-none focus:border-violet-500 font-sans text-xs cursor-pointer"
               >
                 <option value="hatchback">Hatchback (18 km/l)</option>
                 <option value="sedan">Sedan (14 km/l)</option>
@@ -236,11 +202,9 @@ export default function TravelPlanner() {
           <div className="flex items-center gap-1.5 text-slate-400">
             <span className="font-mono text-[11px] uppercase tracking-wider">Adults</span>
             <select
-              value={slots.adults || 1}
-              onChange={(e) =>
-                setSlots((s) => ({ ...s, adults: Number(e.target.value) }))
-              }
-              className="bg-[#141721] border border-white/[0.08] rounded-md px-2 py-1 text-slate-200 focus:outline-none focus:border-violet-500"
+              value={adults}
+              onChange={(e) => setAdults(Number(e.target.value))}
+              className="bg-[#141721] border border-white/[0.08] rounded-md px-2 py-1 text-slate-200 focus:outline-none focus:border-violet-500 cursor-pointer"
             >
               {[1, 2, 3, 4, 5, 6].map((n) => (
                 <option key={n} value={n}>
@@ -254,11 +218,9 @@ export default function TravelPlanner() {
           <div className="flex items-center gap-1.5 text-slate-400">
             <span className="font-mono text-[11px] uppercase tracking-wider">Kids</span>
             <select
-              value={slots.children || 0}
-              onChange={(e) =>
-                setSlots((s) => ({ ...s, children: Number(e.target.value) }))
-              }
-              className="bg-[#141721] border border-white/[0.08] rounded-md px-2 py-1 text-slate-200 focus:outline-none focus:border-violet-500"
+              value={children}
+              onChange={(e) => setChildren(Number(e.target.value))}
+              className="bg-[#141721] border border-white/[0.08] rounded-md px-2 py-1 text-slate-200 focus:outline-none focus:border-violet-500 cursor-pointer"
             >
               {[0, 1, 2, 3, 4].map((n) => (
                 <option key={n} value={n}>
