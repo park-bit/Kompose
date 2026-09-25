@@ -6,7 +6,9 @@ import { ChatMessage, ChatResponse, TravelSlots } from "@/types/travel";
 import RoadmapView from "@/components/RoadmapView";
 import PriceBanner from "@/components/PriceBanner";
 import MapView from "@/components/MapView";
+import SettingsModal from "@/components/SettingsModal";
 import { PlaneIcon, ListIcon, MapIcon, SendIcon } from "@/components/Icons";
+
 
 function renderMarkdown(content: string) {
   const paragraphs = content.split("\n\n");
@@ -54,7 +56,9 @@ export default function TravelPlanner() {
   const [children, setChildren] = useState<number>(0);
   const [response, setResponse] = useState<ChatResponse | null>(null);
   const [activeTab, setActiveTab] = useState<"plan" | "map">("plan");
+  const [showSettings, setShowSettings] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -106,6 +110,7 @@ export default function TravelPlanner() {
     mode === "car" || mode === "mixed" || mode === "bus_car" || mode === "flight_car";
 
   return (
+    <>
     <div className="flex h-screen bg-[#090a0f] text-slate-100 overflow-hidden font-sans antialiased selection:bg-violet-600 selection:text-white">
       {/* Left: Chat Panel */}
       <div className="flex flex-col w-full max-w-md border-r border-white/[0.08] bg-[#0c0e14] shrink-0">
@@ -122,9 +127,22 @@ export default function TravelPlanner() {
               <p className="text-[11px] text-slate-400">Multi-Modal Trip Orchestration</p>
             </div>
           </div>
-          <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            System Live
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              System Live
+            </span>
+            <button
+              id="open-settings-btn"
+              onClick={() => setShowSettings(true)}
+              title="API Keys & Settings"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors"
+              aria-label="Open settings"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                <path fillRule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.295 1.473c.497.144.971.342 1.416.587l1.25-.834a1 1 0 011.262.125l1.668 1.667a1 1 0 01.125 1.263l-.834 1.25c.245.445.443.919.587 1.416l1.472.294A1 1 0 0120 10v2a1 1 0 01-.804.98l-1.473.295a7.954 7.954 0 01-.587 1.416l.834 1.25a1 1 0 01-.125 1.262l-1.667 1.668a1 1 0 01-1.263.125l-1.25-.834a7.954 7.954 0 01-1.416.587l-.294 1.472A1 1 0 0110 20H8a1 1 0 01-.98-.804l-.295-1.473a7.954 7.954 0 01-1.416-.587l-1.25.834a1 1 0 01-1.262-.125L1.13 16.177a1 1 0 01-.125-1.263l.834-1.25a7.953 7.953 0 01-.587-1.416L.78 11.98A1 1 0 010 11V9a1 1 0 01.804-.98l1.473-.295c.144-.497.342-.971.587-1.416l-.834-1.25a1 1 0 01.125-1.262L3.823 2.13a1 1 0 011.263-.125l1.25.834a7.953 7.953 0 011.416-.587l.294-1.472zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Message Stream */}
@@ -352,5 +370,8 @@ export default function TravelPlanner() {
         </div>
       </div>
     </div>
+    <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
+    </>
   );
 }
+

@@ -8,6 +8,12 @@ from app.config import get_settings
 from app.database import engine, Base
 from app.cache import close_redis
 from app.routes import router
+from app.settings_routes import router as settings_router
+from app.settings_routes import _apply_to_env, _load_saved_keys
+
+# Apply any user-saved keys before settings are first read
+_apply_to_env(_load_saved_keys())
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 settings = get_settings()
@@ -42,6 +48,8 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(settings_router)
+
 
 
 @app.get("/health")

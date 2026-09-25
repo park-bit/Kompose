@@ -13,12 +13,12 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-_redis: aioredis.Redis | None = None
+_redis: Any = None
 _redis_disabled = False
 _in_memory_cache: dict[str, tuple[float, str]] = {}
 
 
-async def get_redis() -> aioredis.Redis | None:
+async def get_redis() -> Any:
     global _redis, _redis_disabled
     if _redis_disabled:
         return None

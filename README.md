@@ -120,8 +120,24 @@ flowchart TB
 - **Conversational Slot Persistence**: Multi-turn dialogue with context preservation across conversation turns. Resolves missing parameters (origin, destination, departure date) dynamically.
 - **TensorFlow Route Ranker**: Evaluates cost, travel duration, distance, passenger count, and budget ratio using a neural network to identify top-value travel recommendations.
 - **TensorFlow Price Trend Predictor**: Forecasts fare trajectory (book now vs. wait vs. neutral) with confidence scores using historical fare observations and seasonal patterns.
-- **Interactive Route Map**: Leaflet integration with OpenStreetMap tile layers, waypoints, and route paths.
+- **Interactive Route Map**: Leaflet integration with Google Maps tiles (OSM fallback), waypoints, and route paths.
+- **API Key Settings**: Gear icon in the UI opens a settings modal to save personal API keys locally - no config files needed.
 - **Windows Desktop Application**: Native standalone Windows executable (`Kompose.exe`) that manages backend and frontend services with a borderless desktop window and system tray controls.
+
+## Screenshots
+
+**Landing UI**
+![Landing UI](docs/screenshots/landing.png)
+
+**Trip Plan - Amravati to Goa (₹8,000 budget)**
+![Trip Itinerary](docs/screenshots/itinerary.png)
+
+**Route Map with Google Maps tiles**
+![Route Map](docs/screenshots/route_map.png)
+
+**API Key Settings**
+![Settings Modal](docs/screenshots/settings.png)
+
 
 ## Requirements
 

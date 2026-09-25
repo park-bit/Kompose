@@ -84,7 +84,12 @@ export default function MapView({ roadmap }: Props) {
           attributionControl: true,
         }).setView([20.5937, 78.9629], 5);
 
-        L.tileLayer(
+        const GOOGLE_MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
+        const googleTileUrl = GOOGLE_MAPS_KEY
+          ? `https://maps.googleapis.com/maps/api/staticmap?center={lat},{lon}&zoom={z}&size=256x256&maptype=roadmap&key=${GOOGLE_MAPS_KEY}`
+          : null;
+
+        const osmLayer = L.tileLayer(
           "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
           {
             subdomains: ["a", "b", "c"],
@@ -92,7 +97,30 @@ export default function MapView({ roadmap }: Props) {
               '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
             maxZoom: 19,
           }
-        ).addTo(map);
+        );
+
+        // Google Maps raster tiles (requires Maps JavaScript API or Tile API)
+        const googleLayer = GOOGLE_MAPS_KEY
+          ? L.tileLayer(
+              `https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&key=${GOOGLE_MAPS_KEY}`,
+              {
+                subdomains: ["0", "1", "2", "3"],
+                attribution: '&copy; <a href="https://maps.google.com">Google Maps</a>',
+                maxZoom: 20,
+              }
+            )
+          : null;
+
+        if (googleLayer) {
+          googleLayer.on("tileerror", () => {
+            // Google tile failed - swap to OSM silently
+            map.removeLayer(googleLayer);
+            osmLayer.addTo(map);
+          });
+          googleLayer.addTo(map);
+        } else {
+          osmLayer.addTo(map);
+        }
 
         mapInstanceRef.current = map;
       }

@@ -51,3 +51,15 @@ yarn-error.log*
 *.swo
 .DS_Store
 Thumbs.db
+
+# Release zips (built locally, uploaded via GitHub Releases)
+*.zip
+
+# User-saved API keys (written by the settings UI at runtime)
+user_keys.json
+
+# Auto-generated AI agent rule files (Next.js generates these)
+frontend/AGENTS.md
+frontend/CLAUDE.md
+AGENTS.md
+CLAUDE.md
