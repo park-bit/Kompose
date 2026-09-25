@@ -7,26 +7,39 @@ export async function sendChatMessage(
   sessionId: string | null,
   slots: TravelSlots
 ): Promise<ChatResponse> {
-  const res = await fetch(`${API_URL}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      session_id: sessionId,
-      message,
-      ...slots,
-    }),
-  });
+  try {
+    const res = await fetch(`${API_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sessionId,
+        message,
+        ...slots,
+      }),
+    });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`API error ${res.status}: ${text}`);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API error ${res.status}: ${text}`);
+    }
+
+    return await res.json();
+  } catch (err: any) {
+    if (err instanceof TypeError && err.message.includes("fetch")) {
+      throw new Error(
+        "Backend server unreachable at http://localhost:8000. Please start backend with: uvicorn app.main:app --reload"
+      );
+    }
+    throw err;
   }
-
-  return res.json();
 }
 
 export async function getSessionHistory(sessionId: string) {
-  const res = await fetch(`${API_URL}/api/session/${sessionId}/history`);
-  if (!res.ok) return [];
-  return res.json();
+  try {
+    const res = await fetch(`${API_URL}/api/session/${sessionId}/history`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
 }
