@@ -3,14 +3,14 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", "../.env"), env_file_encoding="utf-8", extra="ignore")
 
     # LLM
     llm_api_key: str = ""
     llm_model: str = "gemini-2.0-flash"
 
-    # Database
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/travel_planner"
+    # Database (defaults to local SQLite for zero-docker setup)
+    database_url: str = "sqlite+aiosqlite:///./travel_planner.db"
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
