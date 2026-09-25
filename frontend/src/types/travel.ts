@@ -1,9 +1,21 @@
+export type TravelModePreference =
+  | "mixed"
+  | "flight"
+  | "train"
+  | "bus"
+  | "car"
+  | "train_bus"
+  | "bus_car"
+  | "flight_car"
+  | "flight_train"
+  | string;
+
 export interface TravelSlots {
   origin?: string;
   destination?: string;
   travel_date?: string;
   budget?: number;
-  mode_preference?: "car" | "train" | "flight" | "mixed";
+  mode_preference?: TravelModePreference;
   adults?: number;
   children?: number;
   car_type?: "hatchback" | "sedan" | "suv" | "ev";
@@ -66,7 +78,7 @@ export interface DailyCost {
 }
 
 export interface RouteLeg {
-  mode: "flight" | "hotel" | "budget_hotel" | "car" | "train";
+  mode: "flight" | "hotel" | "budget_hotel" | "car" | "train" | "bus";
   from?: string;
   to?: string;
   name?: string;
@@ -117,6 +129,8 @@ export interface Roadmap {
   };
   car_cost?: any;
   train_fares?: any;
+  bus_fares?: any;
+  mode_preference?: TravelModePreference;
 }
 
 export interface PriceSignal {

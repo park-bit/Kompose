@@ -47,6 +47,7 @@ class TravelState(TypedDict):
     directions: dict | None
     car_cost: dict | None
     train_fares: dict | None
+    bus_fares: dict | None
     weather: dict | None
     flight_price_analysis: dict | None
     # Computed outputs
@@ -76,7 +77,7 @@ SLOT_SYSTEM = """You are a travel planning assistant. Extract the following slot
 - destination: arrival city/place
 - travel_date: date of travel (ISO format YYYY-MM-DD if determinable)
 - budget: numeric budget in INR (or null)
-- mode_preference: one of car/train/flight/mixed (or null)
+- mode_preference: travel mode (flight, train, bus, car, mixed, train_bus, bus_car, flight_car, flight_train, or null if not explicitly mentioned)
 - adults: number of adults (integer, default 1)
 - children: number of children (integer, default 0)
 - car_type: vehicle model type: hatchback / sedan / suv / ev (or null)
@@ -115,12 +116,21 @@ async def slot_extractor(state: TravelState) -> dict:
 
     car_type_val = (slots.get("car_type") or state.get("car_type") or "sedan").lower()
 
+    budget_val = slots.get("budget") if slots.get("budget") is not None else state.get("budget")
+    if budget_val is not None:
+        try:
+            budget_val = float(budget_val)
+        except (ValueError, TypeError):
+            budget_val = None
+
+    mode_pref_val = (slots.get("mode_preference") or state.get("mode_preference") or "mixed").lower()
+
     return {
         "origin": slots.get("origin") or state.get("origin"),
         "destination": slots.get("destination") or state.get("destination"),
         "travel_date": slots.get("travel_date") or state.get("travel_date"),
-        "budget": slots.get("budget") or state.get("budget"),
-        "mode_preference": slots.get("mode_preference") or state.get("mode_preference"),
+        "budget": budget_val,
+        "mode_preference": mode_pref_val,
         "adults": max(1, adults_val),
         "children": max(0, children_val),
         "car_type": car_type_val,
@@ -170,7 +180,7 @@ async def parallel_fetch(state: TravelState) -> dict:
         get_directions, compare_travel_modes, search_flights,
         get_flight_price_analysis, search_hotels, scrape_budget_listings,
         get_weather_forecast, get_airport_iata,
-        calculate_car_cost, calculate_train_fares,
+        calculate_car_cost, calculate_train_fares, calculate_bus_fares,
     )
 
     # Resolve IATA codes for flights
@@ -188,7 +198,7 @@ async def parallel_fetch(state: TravelState) -> dict:
     origin_iata = (origin_iata_res or {}).get("top_iata", "BOM")
     dest_iata = (dest_iata_res or {}).get("top_iata", "DEL")
 
-    # Fetch directions first to get distance for car & train calculations
+    # Fetch directions first to get distance for car, train & bus calculations
     directions = await safe(get_directions.ainvoke({
         "origin": origin,
         "destination": destination,
@@ -210,6 +220,7 @@ async def parallel_fetch(state: TravelState) -> dict:
         weather,
         car_cost,
         train_fares,
+        bus_fares,
     ) = await asyncio.gather(
         safe(search_flights.ainvoke({"origin_iata": origin_iata, "destination_iata": dest_iata, "departure_date": travel_date, "adults": adults})),
         safe(get_flight_price_analysis.ainvoke({"origin_iata": origin_iata, "destination_iata": dest_iata, "departure_date": travel_date})),
@@ -218,6 +229,7 @@ async def parallel_fetch(state: TravelState) -> dict:
         safe(get_weather_forecast.ainvoke({"city": destination, "travel_date": travel_date})),
         safe(calculate_car_cost.ainvoke({"distance_km": distance_km, "car_type": car_type, "passengers": total_passengers})),
         safe(calculate_train_fares.ainvoke({"origin": origin, "destination": destination, "distance_km": distance_km, "adults": adults, "children": children})),
+        safe(calculate_bus_fares.ainvoke({"origin": origin, "destination": destination, "distance_km": distance_km, "passengers": total_passengers})),
     )
 
     return {
@@ -229,6 +241,7 @@ async def parallel_fetch(state: TravelState) -> dict:
         "weather": weather or {},
         "car_cost": car_cost,
         "train_fares": train_fares,
+        "bus_fares": bus_fares,
     }
 
 
@@ -243,6 +256,7 @@ async def budget_optimizer(state: TravelState) -> dict:
     budget_hotels = state.get("budget_hotels") or []
     car_cost = state.get("car_cost")
     train_fares = state.get("train_fares")
+    bus_fares = state.get("bus_fares")
     adults = state.get("adults") or 1
     children = state.get("children") or 0
     total_passengers = max(1, adults + children)
@@ -260,11 +274,21 @@ async def budget_optimizer(state: TravelState) -> dict:
     cheapest_hotel = min(hotels, key=lambda h: _price_float(h.get("price_per_night")), default=None)
     cheapest_budget = min(budget_hotels, key=lambda h: _price_float(h.get("price_starting_from")), default=None)
 
+    mode_pref = (state.get("mode_preference") or "mixed").lower()
+    valid_modes = {"mixed", "flight", "train", "bus", "car", "train_bus", "bus_car", "flight_car", "flight_train"}
+    if mode_pref not in valid_modes:
+        mode_pref = "mixed"
+
+    include_flight = mode_pref in ("mixed", "flight", "flight_car", "flight_train")
+    include_train = mode_pref in ("mixed", "train", "train_bus", "flight_train")
+    include_bus = mode_pref in ("mixed", "bus", "train_bus", "bus_car")
+    include_car = mode_pref in ("mixed", "car", "flight_car", "bus_car")
+
     # Build roadmap legs
     legs = []
     daily_cost = {}
 
-    if cheapest_flight:
+    if include_flight and cheapest_flight:
         legs.append({
             "mode": "flight",
             "from": state.get("origin"),
@@ -278,8 +302,7 @@ async def budget_optimizer(state: TravelState) -> dict:
         })
 
     # Train option (IRCTC)
-    if train_fares and train_fares.get("classes"):
-        # Default to 3A or SL
+    if include_train and train_fares and train_fares.get("classes"):
         chosen_train = next((c for c in train_fares["classes"] if c["class_code"] in ("3A", "SL")), train_fares["classes"][0])
         legs.append({
             "mode": "train",
@@ -294,8 +317,24 @@ async def budget_optimizer(state: TravelState) -> dict:
             "disclaimer": f"Total for {adults} adult(s)" + (f", {children} child(ren)" if children else ""),
         })
 
+    # Bus option
+    if include_bus and bus_fares and bus_fares.get("options"):
+        chosen_bus = next((b for b in bus_fares["options"] if b["bus_type"] == "AC_SLEEPER"), bus_fares["options"][0])
+        legs.append({
+            "mode": "bus",
+            "from": state.get("origin"),
+            "to": state.get("destination"),
+            "name": f"Intercity Bus ({chosen_bus['type_name']})",
+            "cost": chosen_bus["total_fare"],
+            "currency": "INR",
+            "bookable": True,
+            "source": "Bus Booking",
+            "source_url": chosen_bus.get("book_url"),
+            "disclaimer": f"Est. {chosen_bus['duration_est']} · Total for {total_passengers} passenger(s)",
+        })
+
     # Car option (Fuel + Tolls)
-    if car_cost:
+    if include_car and car_cost:
         legs.append({
             "mode": "car",
             "from": state.get("origin"),
@@ -336,14 +375,27 @@ async def budget_optimizer(state: TravelState) -> dict:
     # Day-by-day cost estimate
     travel_date = state.get("travel_date", "")
     hotel_daily = (_price_float(cheapest_hotel.get("price_per_night")) if cheapest_hotel else 0) * rooms_needed
-    flight_daily = _price_float(cheapest_flight.get("price_total")) if cheapest_flight else 0
+
+    transport_candidates = []
+    if include_flight and cheapest_flight:
+        transport_candidates.append(_price_float(cheapest_flight.get("price_total")))
+    if include_train and train_fares and train_fares.get("classes"):
+        chosen_train = next((c for c in train_fares["classes"] if c["class_code"] in ("3A", "SL")), train_fares["classes"][0])
+        transport_candidates.append(float(chosen_train.get("total_fare", 0)))
+    if include_bus and bus_fares and bus_fares.get("options"):
+        chosen_bus = next((b for b in bus_fares["options"] if b["bus_type"] == "AC_SLEEPER"), bus_fares["options"][0])
+        transport_candidates.append(float(chosen_bus.get("total_fare", 0)))
+    if include_car and car_cost:
+        transport_candidates.append(float(car_cost.get("total_car_cost", 0)))
+
+    transport_daily = min(transport_candidates) if transport_candidates else 0.0
     food_daily = (adults * 800) + (children * 450)
 
     daily_cost[travel_date] = {
-        "transport": flight_daily,
+        "transport": transport_daily,
         "hotel": hotel_daily,
         "food_estimate": food_daily,
-        "total": flight_daily + hotel_daily + food_daily,
+        "total": transport_daily + hotel_daily + food_daily,
     }
 
     total_estimate = sum(d["total"] for d in daily_cost.values())
@@ -354,12 +406,22 @@ async def budget_optimizer(state: TravelState) -> dict:
         "destination": state.get("destination"),
         "travel_date": state.get("travel_date"),
         "budget": budget,
+        "mode_preference": mode_pref,
         "legs": legs,
         "daily_cost": daily_cost,
         "total_estimate": total_estimate,
         "over_budget": over_budget,
         "weather": state.get("weather"),
-        "all_flights": affordable_flights[:5],
+        "passengers": {
+            "adults": adults,
+            "children": children,
+            "total": total_passengers,
+            "rooms_needed": rooms_needed,
+        },
+        "car_cost": car_cost,
+        "train_fares": train_fares,
+        "bus_fares": bus_fares,
+        "all_flights": affordable_flights[:5] if include_flight else [],
         "all_hotels": hotels[:5],
         "budget_hotels": budget_hotels[:5],
     }

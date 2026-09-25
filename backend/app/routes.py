@@ -59,6 +59,7 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         "directions": None,
         "car_cost": None,
         "train_fares": None,
+        "bus_fares": None,
         "weather": None,
         "flight_price_analysis": None,
         "roadmap": None,

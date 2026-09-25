@@ -33,6 +33,21 @@ export default function TravelPlanner() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  useEffect(() => {
+    // Detect and synchronize browser-restored form values (e.g. on F5 reload)
+    const modeEl = document.getElementById("mode-select") as HTMLSelectElement | null;
+    const budgetEl = document.getElementById("budget-input") as HTMLInputElement | null;
+    const vehicleEl = document.getElementById("vehicle-select") as HTMLSelectElement | null;
+    if (modeEl?.value && modeEl.value !== slots.mode_preference) {
+      setSlots((s) => ({
+        ...s,
+        mode_preference: modeEl.value as any,
+        ...(budgetEl?.value ? { budget: Number(budgetEl.value) } : {}),
+        ...(vehicleEl?.value ? { car_type: vehicleEl.value as any } : {}),
+      }));
+    }
+  }, []);
+
   async function handleSend() {
     const text = input.trim();
     if (!text || loading) return;
@@ -45,6 +60,9 @@ export default function TravelPlanner() {
       const res = await sendChatMessage(text, sessionId, slots);
       setSessionId(res.session_id);
       setResponse(res);
+      if (res.roadmap?.budget && !slots.budget) {
+        setSlots((s) => ({ ...s, budget: res.roadmap?.budget }));
+      }
       setMessages((prev) => [...prev, { role: "assistant", content: res.reply }]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Something went wrong.";
@@ -64,8 +82,12 @@ export default function TravelPlanner() {
     }
   }
 
-  const showCarOption =
-    slots.mode_preference === "car" || slots.mode_preference === "mixed";
+  const showCarOption = Boolean(
+    slots.mode_preference === "car" ||
+    slots.mode_preference === "mixed" ||
+    slots.mode_preference === "bus_car" ||
+    slots.mode_preference === "flight_car"
+  );
 
   return (
     <div className="flex h-screen bg-[#090a0f] text-slate-100 overflow-hidden font-sans antialiased selection:bg-violet-600 selection:text-white">
@@ -133,29 +155,74 @@ export default function TravelPlanner() {
           <div className="flex items-center gap-1.5 text-slate-400">
             <span className="font-mono text-[11px] uppercase tracking-wider">Mode</span>
             <select
+              id="mode-select"
+              autoComplete="off"
               value={slots.mode_preference || "mixed"}
-              onChange={(e) =>
-                setSlots((s) => ({ ...s, mode_preference: e.target.value as any }))
-              }
-              className="bg-[#141721] border border-white/[0.08] rounded-md px-2 py-1 text-slate-200 focus:outline-none focus:border-violet-500"
+              onFocus={(e) => {
+                if (e.target.value !== slots.mode_preference) {
+                  setSlots((s) => ({ ...s, mode_preference: e.target.value as any }));
+                }
+              }}
+              onInput={(e) => {
+                const val = (e.target as HTMLSelectElement).value as any;
+                if (val !== slots.mode_preference) {
+                  setSlots((s) => ({ ...s, mode_preference: val }));
+                }
+              }}
+              onChange={(e) => {
+                const val = e.target.value as any;
+                setSlots((s) => ({ ...s, mode_preference: val }));
+              }}
+              className="bg-[#141721] border border-white/[0.08] rounded-md px-2 py-1 text-slate-200 focus:outline-none focus:border-violet-500 font-sans text-xs"
             >
-              <option value="mixed">Mixed</option>
-              <option value="flight">Flight</option>
-              <option value="train">Train</option>
+              <option value="mixed">Mixed (All Modes)</option>
+              <option value="train_bus">Mix: Train + Bus</option>
+              <option value="bus_car">Mix: Bus + Car</option>
+              <option value="flight_train">Mix: Flight + Train</option>
+              <option value="flight_car">Mix: Flight + Car</option>
+              <option value="bus">Bus Only</option>
+              <option value="train">Train (IRCTC)</option>
               <option value="car">Road Trip</option>
+              <option value="flight">Flight Only</option>
             </select>
           </div>
 
-          {/* Car type: only show if mode is car or mixed */}
+          {/* Budget */}
+          <div className="flex items-center gap-1.5 text-slate-400">
+            <span className="font-mono text-[11px] uppercase tracking-wider">Budget</span>
+            <div className="flex items-center bg-[#141721] border border-white/[0.08] rounded-md px-2 py-1 focus-within:border-violet-500">
+              <span className="text-slate-500 text-xs font-mono mr-1">₹</span>
+              <input
+                id="budget-input"
+                autoComplete="off"
+                type="number"
+                placeholder="Flexible"
+                min={0}
+                step={500}
+                value={slots.budget ?? ""}
+                onChange={(e) =>
+                  setSlots((s) => ({
+                    ...s,
+                    budget: e.target.value !== "" ? Math.max(0, Number(e.target.value)) : undefined,
+                  }))
+                }
+                className="w-20 bg-transparent text-slate-200 focus:outline-none font-mono text-xs placeholder:text-slate-600"
+              />
+            </div>
+          </div>
+
+          {/* Car type: show if mode is car or mixed or includes car */}
           {showCarOption && (
             <div className="flex items-center gap-1.5 text-slate-400">
               <span className="font-mono text-[11px] uppercase tracking-wider">Vehicle</span>
               <select
+                id="vehicle-select"
+                autoComplete="off"
                 value={slots.car_type || "sedan"}
                 onChange={(e) =>
                   setSlots((s) => ({ ...s, car_type: e.target.value as any }))
                 }
-                className="bg-[#141721] border border-white/[0.08] rounded-md px-2 py-1 text-slate-200 focus:outline-none focus:border-violet-500"
+                className="bg-[#141721] border border-white/[0.08] rounded-md px-2 py-1 text-slate-200 focus:outline-none focus:border-violet-500 font-sans text-xs"
               >
                 <option value="hatchback">Hatchback (18 km/l)</option>
                 <option value="sedan">Sedan (14 km/l)</option>

@@ -16,6 +16,14 @@ export function TrainIcon({ className = "w-4 h-4" }: { className?: string }) {
   );
 }
 
+export function BusIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 17a2 2 0 11-4 0 2 2 0 014 0zm12 0a2 2 0 11-4 0 2 2 0 014 0zM4 6h16a2 2 0 012 2v9a1 1 0 01-1 1h-1a2 2 0 01-4 0H8a2 2 0 01-4 0H3a1 1 0 01-1-1V8a2 2 0 012-2zm0 0l2-2h12l2 2M6 10h12" />
+    </svg>
+  );
+}
+
 export function CarIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

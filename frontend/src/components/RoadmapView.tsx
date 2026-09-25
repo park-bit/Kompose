@@ -1,7 +1,7 @@
 "use client";
 
 import { Roadmap, Flight, Hotel, BudgetHotel } from "@/types/travel";
-import { TrainIcon, CarIcon, StarIcon, ExternalLinkIcon, UsersIcon } from "@/components/Icons";
+import { TrainIcon, BusIcon, CarIcon, StarIcon, ExternalLinkIcon, UsersIcon } from "@/components/Icons";
 
 interface Props {
   roadmap: Roadmap;
@@ -97,9 +97,10 @@ function CostBreakdown({ roadmap }: { roadmap: Roadmap }) {
 
 function TravelModesSection({ roadmap }: { roadmap: Roadmap }) {
   const trainLeg = roadmap.legs?.find((l) => l.mode === "train");
+  const busLeg = roadmap.legs?.find((l) => l.mode === "bus");
   const carLeg = roadmap.legs?.find((l) => l.mode === "car");
 
-  if (!trainLeg && !carLeg) return null;
+  if (!trainLeg && !busLeg && !carLeg) return null;
 
   return (
     <div className="space-y-3">
@@ -134,6 +135,40 @@ function TravelModesSection({ roadmap }: { roadmap: Roadmap }) {
                   className="text-xs text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1"
                 >
                   <span>Book on IRCTC</span>
+                  <ExternalLinkIcon className="w-3 h-3" />
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+
+        {busLeg && (
+          <div className="bg-[#12151f] border border-white/[0.08] hover:border-amber-500/40 rounded-xl p-4 text-sm transition">
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="p-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    <BusIcon className="w-4 h-4" />
+                  </span>
+                  <span className="font-semibold text-white">{busLeg.name}</span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1.5">{busLeg.disclaimer}</p>
+              </div>
+              <div className="text-right">
+                <span className="font-bold text-amber-400 font-mono">{fmt(busLeg.cost)}</span>
+                <p className="text-[10px] text-slate-500 font-mono uppercase">Total fare</p>
+              </div>
+            </div>
+            {busLeg.source_url && (
+              <div className="mt-3 pt-2.5 border-t border-white/[0.06] flex justify-between items-center">
+                <span className="text-xs text-slate-500">Online bus booking</span>
+                <a
+                  href={busLeg.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-amber-400 hover:text-amber-300 font-medium flex items-center gap-1"
+                >
+                  <span>Book Bus</span>
                   <ExternalLinkIcon className="w-3 h-3" />
                 </a>
               </div>

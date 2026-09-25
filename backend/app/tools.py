@@ -914,12 +914,58 @@ async def calculate_train_fares(
     }
 
 
+# ---------------------------------------------------------------------------
+# Intercity Bus Fare Calculator (State / Private AC Sleeper & Volvo)
+# ---------------------------------------------------------------------------
+
+@tool
+async def calculate_bus_fares(
+    origin: Annotated[str, "Origin station or city name"],
+    destination: Annotated[str, "Destination station or city name"],
+    distance_km: Annotated[float, "Road distance in km"],
+    passengers: Annotated[int, "Total passenger count"] = 1,
+) -> dict:
+    """Calculate intercity bus options (Express Seater, AC Sleeper, Volvo Multi-Axle) and fares."""
+    safe_p = max(1, passengers)
+    types = [
+        {"code": "SEATER", "name": "Express Seater (Non-AC)", "rate": 1.35, "base": 150},
+        {"code": "AC_SLEEPER", "name": "AC Sleeper (2+1)", "rate": 2.10, "base": 350},
+        {"code": "VOLVO", "name": "Volvo Multi-Axle / Scania AC", "rate": 2.75, "base": 500},
+    ]
+
+    results = []
+    for t in types:
+        seat_fare = round(max(t["base"], distance_km * t["rate"]))
+        total = seat_fare * safe_p
+        hrs = max(1, int(distance_km // 45))
+        mins = int((distance_km % 45) / 45 * 60)
+        dur = f"{hrs}h {mins}m" if hrs > 0 else f"{mins}m"
+
+        results.append({
+            "bus_type": t["code"],
+            "type_name": t["name"],
+            "fare_per_seat": seat_fare,
+            "total_fare": total,
+            "duration_est": dur,
+            "passengers": safe_p,
+            "book_url": f"https://www.redbus.in/bus-tickets/{origin.lower()}-to-{destination.lower()}",
+        })
+
+    return {
+        "origin": origin,
+        "destination": destination,
+        "distance_km": round(distance_km, 1),
+        "options": results,
+    }
+
+
 ALL_TOOLS = [
     get_directions,
     compare_travel_modes,
     get_places_along_route,
     calculate_car_cost,
     calculate_train_fares,
+    calculate_bus_fares,
     search_flights,
     get_flight_price_analysis,
     search_hotels,
