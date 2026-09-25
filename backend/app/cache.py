@@ -2,7 +2,12 @@ import time
 import json
 import logging
 from typing import Any
-import redis.asyncio as aioredis
+
+try:
+    import redis.asyncio as aioredis
+except ImportError:
+    aioredis = None
+
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
