@@ -7,7 +7,7 @@ class Settings(BaseSettings):
 
     # LLM
     llm_api_key: str = ""
-    llm_model: str = "gemini-2.0-flash"
+    llm_model: str = "gemini-2.5-flash"
 
     # Database (defaults to local SQLite for zero-docker setup)
     database_url: str = "sqlite+aiosqlite:///./travel_planner.db"
