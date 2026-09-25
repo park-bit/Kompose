@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.pytest_cache/
+
+# Env
+.env
+.env.local
+*.env
+
+# TF model artifacts (download from Kaggle separately)
+backend/models/
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Docker
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
