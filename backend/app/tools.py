@@ -9,7 +9,13 @@ import logging
 from typing import Annotated, Any
 
 import httpx
-from amadeus import Client as AmadeusClient, ResponseError
+
+try:
+    from amadeus import Client as AmadeusClient, ResponseError
+except ImportError:
+    AmadeusClient = None
+    ResponseError = Exception
+
 from langchain_core.tools import tool
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
@@ -393,7 +399,8 @@ async def get_places_along_route(
 
 def _has_amadeus_creds() -> bool:
     return bool(
-        settings.amadeus_client_id
+        AmadeusClient is not None
+        and settings.amadeus_client_id
         and settings.amadeus_client_id != "your_amadeus_client_id_here"
         and settings.amadeus_client_secret
         and settings.amadeus_client_secret != "your_amadeus_client_secret_here"
@@ -463,7 +470,7 @@ async def search_flights(
     adults: Annotated[int, "Number of adult passengers"] = 1,
     max_results: Annotated[int, "Maximum flight offers to return"] = 5,
 ) -> list[dict]:
-    """Search live flight offers via Amadeus Flight Offers Search API (with realistic fallback)."""
+    """Search live flight offers (with realistic market fallback)."""
     key = _cache_key("flights", origin_iata, destination_iata, departure_date, adults)
     cached = await cache_get(key)
     if cached:
@@ -566,7 +573,7 @@ async def search_hotels(
     check_out: Annotated[str, "Check-out date YYYY-MM-DD"],
     adults: Annotated[int, "Number of adults"] = 1,
 ) -> list[dict]:
-    """Search hotel offers (Amadeus with verified stays fallback)."""
+    """Search hotel offers (with verified stays fallback)."""
     key = _cache_key("hotels", city_code, check_in, check_out, adults)
     cached = await cache_get(key)
     if cached:
@@ -777,77 +784,31 @@ async def convert_currency(
 # Airport IATA lookup helper
 # ---------------------------------------------------------------------------
 
-_COMMON_IATA: dict[str, str] = {
-    "mumbai": "BOM",
-    "bombay": "BOM",
-    "delhi": "DEL",
-    "new delhi": "DEL",
-    "bangalore": "BLR",
-    "bengaluru": "BLR",
-    "goa": "GOI",
-    "jaipur": "JAI",
-    "hyderabad": "HYD",
-    "chennai": "MAA",
-    "kolkata": "CCU",
-    "pune": "PNQ",
-    "ahmedabad": "AMD",
-    "kochi": "COK",
-    "cochin": "COK",
-    "chandigarh": "IXC",
-    "amritsar": "ATQ",
-    "varanasi": "VNS",
-    "lucknow": "LKO",
-    "agra": "AGR",
-    "srinagar": "SXR",
-    "dubai": "DXB",
-    "singapore": "SIN",
-    "london": "LHR",
-    "paris": "CDG",
-    "new york": "JFK",
-    "bangkok": "BKK",
-}
-
-
 @tool
 async def get_airport_iata(
     city_name: Annotated[str, "City name to look up IATA airport code for"],
 ) -> dict:
-    """Resolve a city name to its IATA airport code."""
+    """Resolve a city name to its IATA airport code via Amadeus reference data."""
     key = _cache_key("iata", city_name)
     cached = await cache_get(key)
     if cached:
         return cached
 
-    # Fast local lookup
-    norm = city_name.strip().lower()
-    for name, code in _COMMON_IATA.items():
-        if name in norm or norm in name:
-            res = {"locations": [{"iata": code, "name": city_name.title(), "type": "AIRPORT"}], "top_iata": code}
-            await cache_set(key, res, settings.redis_ttl_api)
-            return res
-
-    if _has_amadeus_creds():
-        try:
-            amadeus = _amadeus_client()
-            response = amadeus.reference_data.locations.get(
-                keyword=city_name,
-                subType="AIRPORT,CITY",
-            )
-            locations = [
-                {"iata": loc["iataCode"], "name": loc["name"], "type": loc["subType"]}
-                for loc in response.data[:3]
-            ]
-            result = {"locations": locations, "top_iata": locations[0]["iata"] if locations else None}
-            if locations:
-                await cache_set(key, result, settings.redis_ttl_api)
-                return result
-        except Exception as exc:
-            logger.warning("Amadeus IATA lookup failed: %s", exc)
-
-    fallback_iata = "DEL" if "delhi" in norm else ("BOM" if "mumbai" in norm else "BLR")
-    res = {"locations": [{"iata": fallback_iata, "name": city_name.title(), "type": "AIRPORT"}], "top_iata": fallback_iata}
-    await cache_set(key, res, settings.redis_ttl_api)
-    return res
+    try:
+        amadeus = _amadeus_client()
+        response = amadeus.reference_data.locations.get(
+            keyword=city_name,
+            subType="AIRPORT,CITY",
+        )
+        locations = [
+            {"iata": loc["iataCode"], "name": loc["name"], "type": loc["subType"]}
+            for loc in response.data[:3]
+        ]
+        result = {"locations": locations, "top_iata": locations[0]["iata"] if locations else None}
+        await cache_set(key, result, settings.redis_ttl_api)
+        return result
+    except ResponseError as exc:
+        return {"error": str(exc)}
 
 
 # ---------------------------------------------------------------------------
