@@ -26,14 +26,34 @@ class PriceTrendPredictor:
         self._load_model()
 
     def _load_model(self):
-        if not os.path.exists(self.model_path):
-            logger.warning("Price trend model not found at %s. Using rule-based fallback.", self.model_path)
+        target_path = self.model_path
+        if not os.path.isabs(target_path):
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            target_path = os.path.join(base_dir, target_path)
+
+        if not os.path.exists(target_path) and os.path.exists(target_path + ".keras"):
+            target_path = target_path + ".keras"
+
+        if not os.path.exists(target_path):
+            logger.warning("Price trend model not found at %s. Using rule-based fallback.", target_path)
             return
 
         try:
-            import tensorflow as tf  # lazy import — TF is large
-            self.model = tf.saved_model.load(self.model_path)
-            logger.info("Price trend model loaded from %s", self.model_path)
+            import tensorflow as tf
+            # Safe GPU memory growth for 6GB VRAM limit
+            gpus = tf.config.list_physical_devices("GPU")
+            if gpus:
+                for gpu in gpus:
+                    try:
+                        tf.config.experimental.set_memory_growth(gpu, True)
+                    except Exception:
+                        pass
+
+            if target_path.endswith(".keras") or target_path.endswith(".h5"):
+                self.model = tf.keras.models.load_model(target_path)
+            else:
+                self.model = tf.saved_model.load(target_path)
+            logger.info("TensorFlow price trend model loaded from %s", target_path)
         except Exception as exc:
             logger.error("Failed to load price trend model: %s", exc)
 
@@ -53,19 +73,17 @@ class PriceTrendPredictor:
             return self._rule_based(price, days_to_departure, day_of_week)
 
     def _tf_predict(self, price: float, days_to_departure: int, day_of_week: int, month: int) -> dict:
-        import tensorflow as tf
-
         features = np.array([[
             price,
             days_to_departure,
             day_of_week,
             month,
-            1 if month in (11, 12, 1) else 0,   # peak season flag
+            1 if month in (11, 12, 1, 5) else 0,   # peak season flag
         ]], dtype=np.float32)
 
         try:
-            result = self.model(tf.constant(features))
-            score = float(result.numpy()[0][0])
+            result = self.model(features, training=False)
+            score = float(result[0][0]) if hasattr(result, "__getitem__") else float(result.numpy()[0][0])
             # score > 0.6 = book now, < 0.4 = wait, else neutral
             if score > 0.6:
                 signal = "book_now"
@@ -73,7 +91,7 @@ class PriceTrendPredictor:
                 signal = "wait"
             else:
                 signal = "neutral"
-            return {"signal": signal, "confidence": round(score, 3), "note": f"Model score: {score:.3f}"}
+            return {"signal": signal, "confidence": round(score, 3), "note": f"TensorFlow neural model score: {score:.1%}"}
         except Exception as exc:
             logger.warning("TF inference error: %s", exc)
             return self._rule_based(price, days_to_departure, day_of_week)

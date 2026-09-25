@@ -109,14 +109,30 @@ function TravelModesSection({ roadmap }: { roadmap: Roadmap }) {
       </h3>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {trainLeg && (
-          <div className="bg-[#12151f] border border-white/[0.08] hover:border-emerald-500/40 rounded-xl p-4 text-sm transition">
+          <div
+            className={`rounded-xl p-4 text-sm transition border ${
+              trainLeg.recommended
+                ? "border-cyan-500/50 ring-1 ring-cyan-500/30 bg-[#131929] shadow-lg shadow-cyan-500/10"
+                : "bg-[#12151f] border-white/[0.08] hover:border-emerald-500/40"
+            }`}
+          >
             <div className="flex justify-between items-start">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="p-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                     <TrainIcon className="w-4 h-4" />
                   </span>
                   <span className="font-semibold text-white">{trainLeg.name}</span>
+                  {trainLeg.recommended && (
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shadow-sm">
+                      {trainLeg.recommendation_tag || "Top Value"}
+                    </span>
+                  )}
+                  {trainLeg.ai_score !== undefined && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.05] text-slate-300 border border-white/[0.08]">
+                      AI Score: {trainLeg.ai_score}
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-400 mt-1.5">{trainLeg.disclaimer}</p>
               </div>
@@ -143,14 +159,30 @@ function TravelModesSection({ roadmap }: { roadmap: Roadmap }) {
         )}
 
         {busLeg && (
-          <div className="bg-[#12151f] border border-white/[0.08] hover:border-amber-500/40 rounded-xl p-4 text-sm transition">
+          <div
+            className={`rounded-xl p-4 text-sm transition border ${
+              busLeg.recommended
+                ? "border-cyan-500/50 ring-1 ring-cyan-500/30 bg-[#131929] shadow-lg shadow-cyan-500/10"
+                : "bg-[#12151f] border-white/[0.08] hover:border-amber-500/40"
+            }`}
+          >
             <div className="flex justify-between items-start">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="p-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
                     <BusIcon className="w-4 h-4" />
                   </span>
                   <span className="font-semibold text-white">{busLeg.name}</span>
+                  {busLeg.recommended && (
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shadow-sm">
+                      {busLeg.recommendation_tag || "Top Value"}
+                    </span>
+                  )}
+                  {busLeg.ai_score !== undefined && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.05] text-slate-300 border border-white/[0.08]">
+                      AI Score: {busLeg.ai_score}
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-400 mt-1.5">{busLeg.disclaimer}</p>
               </div>
@@ -177,14 +209,30 @@ function TravelModesSection({ roadmap }: { roadmap: Roadmap }) {
         )}
 
         {carLeg && (
-          <div className="bg-[#12151f] border border-white/[0.08] hover:border-sky-500/40 rounded-xl p-4 text-sm transition">
+          <div
+            className={`rounded-xl p-4 text-sm transition border ${
+              carLeg.recommended
+                ? "border-cyan-500/50 ring-1 ring-cyan-500/30 bg-[#131929] shadow-lg shadow-cyan-500/10"
+                : "bg-[#12151f] border-white/[0.08] hover:border-sky-500/40"
+            }`}
+          >
             <div className="flex justify-between items-start">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="p-1 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">
                     <CarIcon className="w-4 h-4" />
                   </span>
                   <span className="font-semibold text-white">{carLeg.name}</span>
+                  {carLeg.recommended && (
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shadow-sm">
+                      {carLeg.recommendation_tag || "Top Value"}
+                    </span>
+                  )}
+                  {carLeg.ai_score !== undefined && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.05] text-slate-300 border border-white/[0.08]">
+                      AI Score: {carLeg.ai_score}
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-400 mt-1.5">{carLeg.disclaimer}</p>
               </div>

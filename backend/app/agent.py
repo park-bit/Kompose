@@ -72,34 +72,51 @@ def _build_llm():
 # Node: slot extractor
 # ---------------------------------------------------------------------------
 
-SLOT_SYSTEM = """You are a travel planning assistant. Extract the following slots from the user message:
+async def slot_extractor(state: TravelState) -> dict:
+    import datetime
+    llm = _build_llm()
+    today_str = datetime.date.today().isoformat()
+
+    slot_system = f"""You are a travel planning assistant.
+Today's date is {today_str}.
+
+Extract the following travel slots from the conversation:
 - origin: departure city/place
 - destination: arrival city/place
-- travel_date: date of travel (ISO format YYYY-MM-DD if determinable)
+- travel_date: departure date (ISO format YYYY-MM-DD; if a date range is given, use the start/departure date)
 - budget: numeric budget in INR (or null)
 - mode_preference: travel mode (flight, train, bus, car, mixed, train_bus, bus_car, flight_car, flight_train, or null if not explicitly mentioned)
 - adults: number of adults (integer, default 1)
 - children: number of children (integer, default 0)
 - car_type: vehicle model type: hatchback / sedan / suv / ev (or null)
 
-Respond with ONLY a valid JSON object with these keys. Use null for missing values.
+Respond with ONLY a valid JSON object with these keys. Use null for missing or unspecified values.
 Do not add any explanation."""
 
-
-async def slot_extractor(state: TravelState) -> dict:
-    llm = _build_llm()
     last_human = next(
         (m.content for m in reversed(state["messages"]) if isinstance(m, HumanMessage)), ""
     )
 
+    recent_msgs = state.get("messages", [])[-6:]
+    conversation_lines = []
+    for m in recent_msgs:
+        role = "User" if isinstance(m, HumanMessage) else "Assistant"
+        conversation_lines.append(f"{role}: {m.content}")
+    conversation_text = "\n".join(conversation_lines) if conversation_lines else last_human
+
     response = await llm.ainvoke([
-        SystemMessage(content=SLOT_SYSTEM),
-        HumanMessage(content=last_human),
+        SystemMessage(content=slot_system),
+        HumanMessage(content=f"Conversation:\n{conversation_text}\n\nExtract travel slots as JSON:"),
     ])
 
+    raw_text = response.content.strip()
+    if raw_text.startswith("```"):
+        raw_text = raw_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
     try:
-        slots = json.loads(response.content.strip().strip("```json").strip("```"))
+        slots = json.loads(raw_text)
     except json.JSONDecodeError:
+        logger.warning("Failed to parse slot JSON: %s", raw_text)
         slots = {}
 
     adults_val = slots.get("adults") or state.get("adults") or 1
@@ -125,16 +142,22 @@ async def slot_extractor(state: TravelState) -> dict:
 
     mode_pref_val = (slots.get("mode_preference") or state.get("mode_preference") or "mixed").lower()
 
+    resolved_origin = slots.get("origin") or state.get("origin")
+    resolved_destination = slots.get("destination") or state.get("destination")
+    resolved_travel_date = slots.get("travel_date") or state.get("travel_date")
+
+    needs_clarification = not resolved_origin or not resolved_destination or not resolved_travel_date
+
     return {
-        "origin": slots.get("origin") or state.get("origin"),
-        "destination": slots.get("destination") or state.get("destination"),
-        "travel_date": slots.get("travel_date") or state.get("travel_date"),
+        "origin": resolved_origin,
+        "destination": resolved_destination,
+        "travel_date": resolved_travel_date,
         "budget": budget_val,
         "mode_preference": mode_pref_val,
         "adults": max(1, adults_val),
         "children": max(0, children_val),
         "car_type": car_type_val,
-        "clarification_needed": not slots.get("destination") or not slots.get("travel_date"),
+        "clarification_needed": needs_clarification,
     }
 
 
@@ -144,6 +167,8 @@ async def slot_extractor(state: TravelState) -> dict:
 
 async def clarify(state: TravelState) -> dict:
     missing = []
+    if not state.get("origin"):
+        missing.append("departure city")
     if not state.get("destination"):
         missing.append("destination")
     if not state.get("travel_date"):
@@ -167,10 +192,10 @@ def should_clarify(state: TravelState) -> str:
 # ---------------------------------------------------------------------------
 
 async def parallel_fetch(state: TravelState) -> dict:
-    origin = state.get("origin", "Mumbai")
-    destination = state.get("destination", "Delhi")
-    travel_date = state.get("travel_date", "2025-12-01")
-    mode = state.get("mode_preference", "mixed")
+    origin = state.get("origin") or "Mumbai"
+    destination = state.get("destination") or "Delhi"
+    travel_date = state.get("travel_date") or "2025-12-01"
+    mode = state.get("mode_preference") or "mixed"
     adults = state.get("adults") or 1
     children = state.get("children") or 0
     total_passengers = max(1, adults + children)
@@ -195,8 +220,8 @@ async def parallel_fetch(state: TravelState) -> dict:
     dest_iata_task = safe(get_airport_iata.ainvoke({"city_name": destination}))
 
     origin_iata_res, dest_iata_res = await asyncio.gather(origin_iata_task, dest_iata_task)
-    origin_iata = (origin_iata_res or {}).get("top_iata", "BOM")
-    dest_iata = (dest_iata_res or {}).get("top_iata", "DEL")
+    origin_iata = (origin_iata_res or {}).get("top_iata") or "BOM"
+    dest_iata = (dest_iata_res or {}).get("top_iata") or "DEL"
 
     # Fetch directions first to get distance for car, train & bus calculations
     directions = await safe(get_directions.ainvoke({
@@ -372,6 +397,37 @@ async def budget_optimizer(state: TravelState) -> dict:
             "disclaimer": cheapest_budget.get("disclaimer"),
         })
 
+    # TensorFlow Multi-modal Option Scoring
+    from app.travel_ranker import TravelRankerTF
+    ranker = TravelRankerTF()
+    dist_km = 800.0
+    if state.get("directions") and state.get("directions", {}).get("routes"):
+        dist_val = state["directions"]["routes"][0].get("distance", {}).get("value")
+        if dist_val:
+            dist_km = dist_val / 1000.0
+
+    scored_candidates = []
+    for leg in legs:
+        m = leg.get("mode")
+        if m in ("flight", "train", "bus", "car"):
+            cost_val = _price_float(leg.get("cost"))
+            dur = max(1.5, dist_km / (500.0 if m == "flight" else (60.0 if m == "train" else (45.0 if m == "bus" else 55.0))))
+            leg_score = ranker.score_option(
+                mode=m,
+                cost=cost_val,
+                duration_hrs=dur,
+                distance_km=dist_km,
+                passengers=total_passengers,
+                budget=budget,
+            )
+            leg["ai_score"] = leg_score
+            scored_candidates.append(leg)
+
+    if scored_candidates:
+        best_leg = max(scored_candidates, key=lambda l: l.get("ai_score", 0.0))
+        best_leg["recommended"] = True
+        best_leg["recommendation_tag"] = "AI Top Pick"
+
     # Day-by-day cost estimate
     travel_date = state.get("travel_date", "")
     hotel_daily = (_price_float(cheapest_hotel.get("price_per_night")) if cheapest_hotel else 0) * rooms_needed
@@ -445,8 +501,12 @@ _predictor: PriceTrendPredictor | None = None
 
 def _get_predictor() -> PriceTrendPredictor:
     global _predictor
-    if _predictor is None:
-        _predictor = PriceTrendPredictor(settings.price_model_path)
+    import os
+    from app.price_trend import PriceTrendPredictor
+    if _predictor is None or _predictor.model is None:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        model_path = os.path.join(base_dir, "models", "price_trend_model.keras")
+        _predictor = PriceTrendPredictor(model_path)
     return _predictor
 
 
@@ -464,8 +524,8 @@ async def price_trend_node(state: TravelState) -> dict:
             key=lambda f: _price_float(f.get("price_total")),
             default=None,
         )
-        if cheapest and travel_date:
-            price = _price_float(cheapest.get("price_total"))
+        if travel_date:
+            price = _price_float(cheapest.get("price_total")) if cheapest else 5000.0
             signal = predictor.predict(price=price, travel_date=travel_date)
     except Exception as exc:
         logger.warning("Price trend prediction failed: %s", exc)

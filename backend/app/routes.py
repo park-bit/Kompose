@@ -36,20 +36,55 @@ class ChatResponse(BaseModel):
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select
+    from langchain_core.messages import AIMessage
+
     session_id = req.session_id or str(uuid.uuid4())
+
+    # Load previous trip queries for this session to preserve slots across turns
+    prior_trip_stmt = (
+        select(TripQuery)
+        .where(TripQuery.session_id == session_id)
+        .order_by(TripQuery.created_at.desc())
+        .limit(1)
+    )
+    prior_trip_res = await db.execute(prior_trip_stmt)
+    prior_trip = prior_trip_res.scalars().first()
+
+    origin_fallback = req.origin or (prior_trip.origin if prior_trip else None)
+    dest_fallback = req.destination or (prior_trip.destination if prior_trip else None)
+    date_fallback = req.travel_date or (prior_trip.travel_date if prior_trip else None)
+    budget_fallback = req.budget if req.budget is not None else (prior_trip.budget if prior_trip else None)
+    mode_fallback = req.mode_preference or (prior_trip.mode_preference if prior_trip else None)
+
+    # Load recent conversation history for this session
+    prior_msgs_stmt = (
+        select(ConversationMessage)
+        .where(ConversationMessage.session_id == session_id)
+        .order_by(ConversationMessage.created_at.asc())
+    )
+    prior_msgs_res = await db.execute(prior_msgs_stmt)
+    prior_msgs = prior_msgs_res.scalars().all()
 
     # Persist user message
     db.add(ConversationMessage(session_id=session_id, role="user", content=req.message))
     await db.flush()
 
+    # Assemble messages for graph
+    graph_messages = [
+        HumanMessage(content=m.content) if m.role == "user" else AIMessage(content=m.content)
+        for m in prior_msgs[-6:]
+    ]
+    graph_messages.append(HumanMessage(content=req.message))
+
     # Build initial state
     initial_state = {
-        "messages": [HumanMessage(content=req.message)],
-        "origin": req.origin,
-        "destination": req.destination,
-        "travel_date": req.travel_date,
-        "budget": req.budget,
-        "mode_preference": req.mode_preference,
+        "messages": graph_messages,
+        "origin": origin_fallback,
+        "destination": dest_fallback,
+        "travel_date": date_fallback,
+        "budget": budget_fallback,
+        "mode_preference": mode_fallback,
         "adults": req.adults or 1,
         "children": req.children or 0,
         "car_type": req.car_type or "sedan",
@@ -71,7 +106,6 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     result = await travel_graph.ainvoke(initial_state)
 
     # Extract assistant reply
-    from langchain_core.messages import AIMessage
     reply = next(
         (m.content for m in reversed(result["messages"]) if isinstance(m, AIMessage)),
         "I'm working on your travel plan.",
@@ -81,11 +115,13 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     db.add(ConversationMessage(session_id=session_id, role="assistant", content=reply))
 
     # Persist trip query if slots resolved
-    if result.get("origin") and result.get("destination"):
+    resolved_origin = result.get("origin")
+    resolved_dest = result.get("destination")
+    if resolved_origin and resolved_dest:
         db.add(TripQuery(
             session_id=session_id,
-            origin=result.get("origin"),
-            destination=result.get("destination"),
+            origin=resolved_origin,
+            destination=resolved_dest,
             travel_date=result.get("travel_date"),
             budget=result.get("budget"),
             mode_preference=result.get("mode_preference"),
@@ -120,11 +156,14 @@ async def _store_fare_records(db: AsyncSession, state: dict):
     from datetime import date as dt_date
     import datetime
 
-    travel_date = state.get("travel_date", "")
-    query_date = str(dt_date.today())
-    origin = state.get("origin", "")
-    destination = state.get("destination", "")
+    origin = state.get("origin") or ""
+    destination = state.get("destination") or ""
+    if not origin or not destination:
+        return
+
     route_key = f"{origin[:3].upper()}-{destination[:3].upper()}"
+    travel_date = state.get("travel_date") or ""
+    query_date = str(dt_date.today())
 
     try:
         travel_dt = datetime.datetime.strptime(travel_date, "%Y-%m-%d").date()

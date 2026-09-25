@@ -34,8 +34,8 @@ class Settings(BaseSettings):
     # Exchange Rates
     exchangerate_api_key: str = ""
 
-    # TF model path (exported from Kaggle)
-    price_model_path: str = "models/price_trend_model"
+    # TF model path (trained locally in workspace models/)
+    price_model_path: str = "models/price_trend_model.keras"
 
     # App
     debug: bool = False

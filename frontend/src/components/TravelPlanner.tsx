@@ -8,6 +8,34 @@ import PriceBanner from "@/components/PriceBanner";
 import MapView from "@/components/MapView";
 import { PlaneIcon, ListIcon, MapIcon, SendIcon } from "@/components/Icons";
 
+function renderMarkdown(content: string) {
+  const paragraphs = content.split("\n\n");
+  return paragraphs.map((para, pIdx) => {
+    const lines = para.split("\n");
+    return (
+      <div key={pIdx} className="mb-2 last:mb-0 space-y-1">
+        {lines.map((line, lIdx) => {
+          const parts = line.split(/(\*\*[^*]+\*\*)/g);
+          return (
+            <p key={lIdx} className="leading-relaxed">
+              {parts.map((part, i) => {
+                if (part.startsWith("**") && part.endsWith("**")) {
+                  return (
+                    <strong key={i} className="font-semibold text-white">
+                      {part.slice(2, -2)}
+                    </strong>
+                  );
+                }
+                return part;
+              })}
+            </p>
+          );
+        })}
+      </div>
+    );
+  });
+}
+
 export default function TravelPlanner() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -113,7 +141,9 @@ export default function TravelPlanner() {
                     : "bg-[#141721] text-slate-200 border border-white/[0.08]"
                 }`}
               >
-                <p className="whitespace-pre-wrap">{m.content}</p>
+                <div className="text-slate-200">
+                  {renderMarkdown(m.content)}
+                </div>
               </div>
             </div>
           ))}

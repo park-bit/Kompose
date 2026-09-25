@@ -92,6 +92,9 @@ export interface RouteLeg {
   source?: string;
   source_url?: string;
   disclaimer?: string;
+  ai_score?: number;
+  recommended?: boolean;
+  recommendation_tag?: string;
 }
 
 export interface WeatherForecast {
