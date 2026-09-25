@@ -138,6 +138,9 @@ flowchart TB
 **API Key Settings**
 ![Settings Modal](docs/screenshots/image4.png)
 
+**Route Detail View**
+![Route Detail View](docs/screenshots/image5.png)
+
 
 ## Requirements
 
