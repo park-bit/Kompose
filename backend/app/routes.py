@@ -21,6 +21,9 @@ class ChatRequest(BaseModel):
     travel_date: str | None = None
     budget: float | None = None
     mode_preference: str | None = None
+    adults: int | None = 1
+    children: int | None = 0
+    car_type: str | None = "sedan"
 
 
 class ChatResponse(BaseModel):
@@ -47,10 +50,15 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         "travel_date": req.travel_date,
         "budget": req.budget,
         "mode_preference": req.mode_preference,
+        "adults": req.adults or 1,
+        "children": req.children or 0,
+        "car_type": req.car_type or "sedan",
         "flights": None,
         "hotels": None,
         "budget_hotels": None,
         "directions": None,
+        "car_cost": None,
+        "train_fares": None,
         "weather": None,
         "flight_price_analysis": None,
         "roadmap": None,

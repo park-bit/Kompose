@@ -2,15 +2,15 @@
 
 import { useState, useRef, useEffect } from "react";
 import { sendChatMessage } from "@/lib/api";
-import { ChatResponse, TravelSlots } from "@/types/travel";
+import { ChatMessage, ChatResponse, TravelSlots } from "@/types/travel";
 import RoadmapView from "@/components/RoadmapView";
 import PriceBanner from "@/components/PriceBanner";
 import MapView from "@/components/MapView";
 
 export default function TravelPlanner() {
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState<ChatMessage[]>([
     {
-      role: "assistant" as const,
+      role: "assistant",
       content:
         "Hi! Tell me where you want to go, your travel dates, budget, and how you prefer to travel (car, train, flight, or mixed). I'll plan the full trip.",
     },
@@ -18,7 +18,12 @@ export default function TravelPlanner() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [slots] = useState<TravelSlots>({});
+  const [slots, setSlots] = useState<TravelSlots>({
+    adults: 1,
+    children: 0,
+    car_type: "sedan",
+    mode_preference: "mixed",
+  });
   const [response, setResponse] = useState<ChatResponse | null>(null);
   const [activeTab, setActiveTab] = useState<"plan" | "map">("plan");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -99,6 +104,63 @@ export default function TravelPlanner() {
             </div>
           )}
           <div ref={bottomRef} />
+        </div>
+
+        {/* Quick Travel Party & Vehicle Bar */}
+        <div className="px-4 py-2 border-t border-white/10 bg-black/30 text-xs flex flex-wrap gap-2 items-center">
+          <div className="flex items-center gap-1 text-slate-300">
+            <span>Adults:</span>
+            <select
+              value={slots.adults || 1}
+              onChange={(e) => setSlots((s) => ({ ...s, adults: Number(e.target.value) }))}
+              className="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white"
+            >
+              {[1, 2, 3, 4, 5, 6].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1 text-slate-300">
+            <span>Kids:</span>
+            <select
+              value={slots.children || 0}
+              onChange={(e) => setSlots((s) => ({ ...s, children: Number(e.target.value) }))}
+              className="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white"
+            >
+              {[0, 1, 2, 3, 4].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1 text-slate-300">
+            <span>Car:</span>
+            <select
+              value={slots.car_type || "sedan"}
+              onChange={(e) => setSlots((s) => ({ ...s, car_type: e.target.value as any }))}
+              className="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white"
+            >
+              <option value="hatchback">Hatchback (18 km/l)</option>
+              <option value="sedan">Sedan (14 km/l)</option>
+              <option value="suv">SUV (10.5 km/l)</option>
+              <option value="ev">EV (~₹2.2/km)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1 text-slate-300">
+            <span>Mode:</span>
+            <select
+              value={slots.mode_preference || "mixed"}
+              onChange={(e) => setSlots((s) => ({ ...s, mode_preference: e.target.value as any }))}
+              className="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white"
+            >
+              <option value="mixed">Mixed</option>
+              <option value="flight">Flight</option>
+              <option value="train">Train (IRCTC)</option>
+              <option value="car">Road Trip</option>
+            </select>
+          </div>
         </div>
 
         {/* Input */}

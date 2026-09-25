@@ -4,6 +4,9 @@ export interface TravelSlots {
   travel_date?: string;
   budget?: number;
   mode_preference?: "car" | "train" | "flight" | "mixed";
+  adults?: number;
+  children?: number;
+  car_type?: "hatchback" | "sedan" | "suv" | "ev";
 }
 
 export interface ChatMessage {
@@ -106,6 +109,14 @@ export interface Roadmap {
   all_flights?: Flight[];
   all_hotels?: Hotel[];
   budget_hotels?: BudgetHotel[];
+  passengers?: {
+    adults: number;
+    children: number;
+    total: number;
+    rooms_needed?: number;
+  };
+  car_cost?: any;
+  train_fares?: any;
 }
 
 export interface PriceSignal {

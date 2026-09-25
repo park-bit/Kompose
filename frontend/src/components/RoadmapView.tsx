@@ -1,6 +1,6 @@
 "use client";
 
-import { Roadmap, RouteLeg, Flight, Hotel, BudgetHotel } from "@/types/travel";
+import { Roadmap, Flight, Hotel, BudgetHotel } from "@/types/travel";
 
 interface Props {
   roadmap: Roadmap;
@@ -35,7 +35,17 @@ function WeatherCard({ weather }: { weather: Roadmap["weather"] }) {
 function CostBreakdown({ roadmap }: { roadmap: Roadmap }) {
   return (
     <div className="bg-white/5 border border-white/10 rounded-xl p-4">
-      <h3 className="text-sm font-semibold text-slate-300 mb-3">Cost Breakdown</h3>
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-sm font-semibold text-slate-300">Cost Breakdown</h3>
+        {roadmap.passengers && (
+          <span className="text-xs bg-violet-600/30 text-violet-300 border border-violet-500/30 px-2 py-0.5 rounded-full">
+            👥 {roadmap.passengers.adults} adult(s)
+            {roadmap.passengers.children > 0 ? `, ${roadmap.passengers.children} kid(s)` : ""}
+            {roadmap.passengers.rooms_needed ? ` • ${roadmap.passengers.rooms_needed} room(s)` : ""}
+          </span>
+        )}
+      </div>
+
       {Object.entries(roadmap.daily_cost || {}).map(([date, costs]) => (
         <div key={date} className="mb-3">
           <p className="text-xs text-slate-400 mb-1">{date}</p>
@@ -78,6 +88,69 @@ function CostBreakdown({ roadmap }: { roadmap: Roadmap }) {
   );
 }
 
+function TravelModesSection({ roadmap }: { roadmap: Roadmap }) {
+  const trainLeg = roadmap.legs?.find((l) => l.mode === "train");
+  const carLeg = roadmap.legs?.find((l) => l.mode === "car");
+
+  if (!trainLeg && !carLeg) return null;
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-semibold text-slate-300">Mode Comparison & Travel Options</h3>
+      <div className="grid grid-cols-1 gap-2.5">
+        {trainLeg && (
+          <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-xl p-3 text-sm">
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-base">🚆</span>
+                  <span className="font-semibold text-emerald-300">{trainLeg.name}</span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">{trainLeg.disclaimer}</p>
+              </div>
+              <div className="text-right">
+                <span className="font-bold text-emerald-300">{fmt(trainLeg.cost)}</span>
+                <p className="text-[10px] text-slate-500">Group total</p>
+              </div>
+            </div>
+            {trainLeg.source_url && (
+              <div className="mt-2 pt-2 border-t border-emerald-500/20 flex justify-between items-center">
+                <span className="text-xs text-slate-400">Official IRCTC booking</span>
+                <a
+                  href={trainLeg.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-emerald-400 hover:text-emerald-300 underline font-medium"
+                >
+                  Book on IRCTC ↗
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+
+        {carLeg && (
+          <div className="bg-sky-950/20 border border-sky-500/30 rounded-xl p-3 text-sm">
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-base">🚗</span>
+                  <span className="font-semibold text-sky-300">{carLeg.name}</span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">{carLeg.disclaimer}</p>
+              </div>
+              <div className="text-right">
+                <span className="font-bold text-sky-300">{fmt(carLeg.cost)}</span>
+                <p className="text-[10px] text-slate-500">Fuel + Tolls</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function FlightCard({ flight }: { flight: Flight }) {
   const seg = flight.segments?.[0];
   return (
@@ -87,7 +160,9 @@ function FlightCard({ flight }: { flight: Flight }) {
           <p className="font-medium text-white">
             {seg?.from} → {seg?.to}
           </p>
-          <p className="text-slate-400 text-xs">{seg?.carrier} {seg?.flight_number}</p>
+          <p className="text-slate-400 text-xs">
+            {seg?.carrier} {seg?.flight_number}
+          </p>
           <p className="text-slate-400 text-xs">{seg?.departure}</p>
           {(flight.stops ?? 0) > 0 && (
             <p className="text-amber-400 text-xs">{flight.stops} stop(s)</p>
@@ -163,6 +238,7 @@ export default function RoadmapView({ roadmap }: Props) {
       </div>
 
       <CostBreakdown roadmap={roadmap} />
+      <TravelModesSection roadmap={roadmap} />
       {roadmap.weather && <WeatherCard weather={roadmap.weather} />}
 
       {/* Flights */}
@@ -170,7 +246,9 @@ export default function RoadmapView({ roadmap }: Props) {
         <div>
           <h3 className="text-sm font-semibold text-slate-300 mb-2">Flight Options</h3>
           <div className="space-y-2">
-            {roadmap.all_flights?.map((f, i) => <FlightCard key={i} flight={f} />)}
+            {roadmap.all_flights?.map((f, i) => (
+              <FlightCard key={i} flight={f} />
+            ))}
           </div>
         </div>
       )}
@@ -180,7 +258,9 @@ export default function RoadmapView({ roadmap }: Props) {
         <div>
           <h3 className="text-sm font-semibold text-slate-300 mb-2">Hotel Options</h3>
           <div className="space-y-2">
-            {roadmap.all_hotels?.map((h, i) => <HotelCard key={i} hotel={h} />)}
+            {roadmap.all_hotels?.map((h, i) => (
+              <HotelCard key={i} hotel={h} />
+            ))}
           </div>
         </div>
       )}
@@ -193,7 +273,9 @@ export default function RoadmapView({ roadmap }: Props) {
             Prices from third-party sites. Check source for current rates before booking.
           </p>
           <div className="space-y-2">
-            {roadmap.budget_hotels?.map((h, i) => <BudgetHotelCard key={i} hotel={h} />)}
+            {roadmap.budget_hotels?.map((h, i) => (
+              <BudgetHotelCard key={i} hotel={h} />
+            ))}
           </div>
         </div>
       )}

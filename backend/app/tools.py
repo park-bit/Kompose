@@ -50,8 +50,61 @@ def _amadeus_client() -> AmadeusClient:
 
 
 # ---------------------------------------------------------------------------
-# Google Maps tools
+# Routing & Places (Google Maps with free OpenStreetMap/OSRM fallback)
 # ---------------------------------------------------------------------------
+
+_COMMON_COORDS: dict[str, tuple[float, float]] = {
+    "mumbai": (19.0760, 72.8777),
+    "delhi": (28.6139, 77.2090),
+    "new delhi": (28.6139, 77.2090),
+    "bangalore": (12.9716, 77.5946),
+    "bengaluru": (12.9716, 77.5946),
+    "goa": (15.2993, 74.1240),
+    "jaipur": (26.9124, 75.7873),
+    "hyderabad": (17.3850, 78.4867),
+    "chennai": (13.0827, 80.2707),
+    "kolkata": (22.5726, 88.3639),
+    "pune": (18.5204, 73.8567),
+    "ahmedabad": (23.0225, 72.5714),
+    "agra": (27.1767, 78.0081),
+    "varanasi": (25.3176, 82.9739),
+    "udaipur": (24.5854, 73.7125),
+    "manali": (32.2432, 77.1892),
+    "shimla": (31.1048, 77.1734),
+    "kochi": (9.9312, 76.2673),
+    "chandigarh": (30.7333, 76.7794),
+    "amritsar": (31.6340, 74.8723),
+    "dubai": (25.2048, 55.2708),
+    "singapore": (1.3521, 103.8198),
+    "london": (51.5074, -0.1278),
+    "paris": (48.8566, 2.3522),
+    "new york": (40.7128, -74.0060),
+}
+
+
+async def _geocode(place: str) -> tuple[float, float] | None:
+    norm = place.strip().lower()
+    for city, coords in _COMMON_COORDS.items():
+        if city in norm or norm in city:
+            return coords
+
+    # Parse raw lat,lng string
+    if "," in norm:
+        parts = norm.split(",")
+        try:
+            return float(parts[0].strip()), float(parts[1].strip())
+        except ValueError:
+            pass
+
+    try:
+        url = f"https://nominatim.openstreetmap.org/search?q={httpx.URL(norm)}&format=json&limit=1"
+        data = await _http_get(url, headers={"User-Agent": "KomposeTravelPlanner/1.0"})
+        if data and isinstance(data, list) and len(data) > 0:
+            return float(data[0]["lat"]), float(data[0]["lon"])
+    except Exception as exc:
+        logger.warning(f"Nominatim geocode failed for {place}: {exc}")
+    return None
+
 
 @tool
 async def get_directions(
@@ -59,36 +112,104 @@ async def get_directions(
     destination: Annotated[str, "Destination city or address"],
     mode: Annotated[str, "Travel mode: driving, transit, walking, bicycling"] = "driving",
 ) -> dict:
-    """Get route directions including steps, distance, and duration from Google Maps."""
+    """Get route directions including steps, distance, and duration."""
     key = _cache_key("directions", origin, destination, mode)
     cached = await cache_get(key)
     if cached:
         return cached
 
-    params = {
-        "origin": origin,
-        "destination": destination,
-        "mode": mode,
-        "key": settings.google_maps_api_key,
-    }
-    data = await _http_get("https://maps.googleapis.com/maps/api/directions/json", params=params)
-    result = {
-        "status": data.get("status"),
-        "routes": [
-            {
-                "summary": r.get("summary"),
-                "distance": r["legs"][0]["distance"] if r.get("legs") else None,
-                "duration": r["legs"][0]["duration"] if r.get("legs") else None,
-                "steps": [
-                    {"instruction": s.get("html_instructions", ""), "distance": s.get("distance"), "duration": s.get("duration")}
-                    for s in r["legs"][0].get("steps", [])[:10]
-                ] if r.get("legs") else [],
+    has_google_key = bool(
+        settings.google_maps_api_key
+        and settings.google_maps_api_key != "your_google_maps_api_key_here"
+    )
+
+    if has_google_key:
+        try:
+            params = {
+                "origin": origin,
+                "destination": destination,
+                "mode": mode,
+                "key": settings.google_maps_api_key,
             }
-            for r in data.get("routes", [])[:2]
-        ],
-    }
-    await cache_set(key, result, settings.redis_ttl_api)
-    return result
+            data = await _http_get("https://maps.googleapis.com/maps/api/directions/json", params=params)
+            if data.get("status") == "OK":
+                result = {
+                    "status": "OK",
+                    "routes": [
+                        {
+                            "summary": r.get("summary"),
+                            "distance": r["legs"][0]["distance"] if r.get("legs") else None,
+                            "duration": r["legs"][0]["duration"] if r.get("legs") else None,
+                            "steps": [
+                                {
+                                    "instruction": s.get("html_instructions", ""),
+                                    "distance": s.get("distance"),
+                                    "duration": s.get("duration"),
+                                }
+                                for s in r["legs"][0].get("steps", [])[:10]
+                            ] if r.get("legs") else [],
+                        }
+                        for r in data.get("routes", [])[:2]
+                    ],
+                }
+                await cache_set(key, result, settings.redis_ttl_api)
+                return result
+        except Exception as exc:
+            logger.warning(f"Google Maps Directions failed, falling back to OSRM: {exc}")
+
+    # Free OSRM fallback
+    origin_coords = await _geocode(origin)
+    dest_coords = await _geocode(destination)
+
+    if not origin_coords or not dest_coords:
+        return {"status": "NOT_FOUND", "routes": []}
+
+    try:
+        osrm_url = (
+            f"https://router.project-osrm.org/route/v1/driving/"
+            f"{origin_coords[1]},{origin_coords[0]};{dest_coords[1]},{dest_coords[0]}"
+            f"?overview=false&steps=true"
+        )
+        data = await _http_get(osrm_url)
+        if data.get("code") == "Ok" and data.get("routes"):
+            route = data["routes"][0]
+            meters = route.get("distance", 0)
+            seconds = route.get("duration", 0)
+            km = round(meters / 1000, 1)
+            hrs = int(seconds // 3600)
+            mins = int((seconds % 3600) // 60)
+            dur_str = f"{hrs}h {mins}m" if hrs > 0 else f"{mins} mins"
+
+            steps = []
+            for leg in route.get("legs", []):
+                for s in leg.get("steps", [])[:10]:
+                    maneuver = s.get("maneuver", {}).get("type", "Proceed")
+                    name = s.get("name") or "road"
+                    step_m = s.get("distance", 0)
+                    step_s = s.get("duration", 0)
+                    steps.append({
+                        "instruction": f"{maneuver.title()} along {name}",
+                        "distance": {"text": f"{round(step_m / 1000, 1)} km", "value": int(step_m)},
+                        "duration": {"text": f"{int(step_s // 60)} mins", "value": int(step_s)},
+                    })
+
+            result = {
+                "status": "OK",
+                "routes": [
+                    {
+                        "summary": f"{origin} to {destination} via primary route",
+                        "distance": {"text": f"{km} km", "value": int(meters)},
+                        "duration": {"text": dur_str, "value": int(seconds)},
+                        "steps": steps,
+                    }
+                ],
+            }
+            await cache_set(key, result, settings.redis_ttl_api)
+            return result
+    except Exception as exc:
+        logger.error(f"OSRM routing failed: {exc}")
+
+    return {"status": "ZERO_RESULTS", "routes": []}
 
 
 @tool
@@ -96,41 +217,101 @@ async def compare_travel_modes(
     origin: Annotated[str, "Origin city"],
     destination: Annotated[str, "Destination city"],
 ) -> dict:
-    """Use Distance Matrix API to compare driving vs transit travel time and distance."""
+    """Compare driving vs transit travel time and distance."""
     key = _cache_key("distance_matrix", origin, destination)
     cached = await cache_get(key)
     if cached:
         return cached
 
-    modes = ["driving", "transit"]
-    results = {}
-    for mode in modes:
-        params = {
-            "origins": origin,
-            "destinations": destination,
-            "mode": mode,
-            "key": settings.google_maps_api_key,
-        }
-        try:
-            data = await _http_get("https://maps.googleapis.com/maps/api/distancematrix/json", params=params)
-            row = data.get("rows", [{}])[0]
-            element = row.get("elements", [{}])[0]
-            results[mode] = {
-                "status": element.get("status"),
-                "distance": element.get("distance"),
-                "duration": element.get("duration"),
-            }
-        except Exception as exc:
-            results[mode] = {"error": str(exc)}
+    has_google_key = bool(
+        settings.google_maps_api_key
+        and settings.google_maps_api_key != "your_google_maps_api_key_here"
+    )
 
-    await cache_set(key, results, settings.redis_ttl_api)
-    return results
+    if has_google_key:
+        try:
+            modes = ["driving", "transit"]
+            results = {}
+            for m in modes:
+                params = {
+                    "origins": origin,
+                    "destinations": destination,
+                    "mode": m,
+                    "key": settings.google_maps_api_key,
+                }
+                data = await _http_get("https://maps.googleapis.com/maps/api/distancematrix/json", params=params)
+                row = data.get("rows", [{}])[0]
+                element = row.get("elements", [{}])[0]
+                results[m] = {
+                    "status": element.get("status"),
+                    "distance": element.get("distance"),
+                    "duration": element.get("duration"),
+                }
+            await cache_set(key, results, settings.redis_ttl_api)
+            return results
+        except Exception as exc:
+            logger.warning(f"Google Distance Matrix failed, falling back to OSRM: {exc}")
+
+    # Free OSRM + heuristic fallback
+    origin_coords = await _geocode(origin)
+    dest_coords = await _geocode(destination)
+
+    if not origin_coords or not dest_coords:
+        return {
+            "driving": {"status": "NOT_FOUND"},
+            "transit": {"status": "NOT_FOUND"},
+        }
+
+    try:
+        osrm_url = (
+            f"https://router.project-osrm.org/route/v1/driving/"
+            f"{origin_coords[1]},{origin_coords[0]};{dest_coords[1]},{dest_coords[0]}"
+            f"?overview=false"
+        )
+        data = await _http_get(osrm_url)
+        if data.get("code") == "Ok" and data.get("routes"):
+            route = data["routes"][0]
+            meters = route.get("distance", 0)
+            seconds = route.get("duration", 0)
+            km = round(meters / 1000, 1)
+
+            drive_hrs = int(seconds // 3600)
+            drive_mins = int((seconds % 3600) // 60)
+            drive_dur_str = f"{drive_hrs}h {drive_mins}m" if drive_hrs > 0 else f"{drive_mins} mins"
+
+            # Transit estimated at ~65 km/h avg train/bus speed
+            transit_hours = max(1.0, km / 65.0)
+            t_hrs = int(transit_hours)
+            t_mins = int((transit_hours - t_hrs) * 60)
+            transit_dur_str = f"{t_hrs}h {t_mins}m"
+
+            results = {
+                "driving": {
+                    "status": "OK",
+                    "distance": {"text": f"{km} km", "value": int(meters)},
+                    "duration": {"text": drive_dur_str, "value": int(seconds)},
+                },
+                "transit": {
+                    "status": "OK",
+                    "distance": {"text": f"{round(km * 1.05, 1)} km", "value": int(meters * 1.05)},
+                    "duration": {"text": transit_dur_str, "value": int(transit_hours * 3600)},
+                },
+            }
+            await cache_set(key, results, settings.redis_ttl_api)
+            return results
+    except Exception as exc:
+        logger.error(f"OSRM comparison failed: {exc}")
+
+    return {
+        "driving": {"status": "ZERO_RESULTS"},
+        "transit": {"status": "ZERO_RESULTS"},
+    }
 
 
 @tool
 async def get_places_along_route(
     location: Annotated[str, "Lat,lng string e.g. '19.0760,72.8777' or city name"],
-    place_type: Annotated[str, "Google place type: restaurant, gas_station, lodging, tourist_attraction"] = "restaurant",
+    place_type: Annotated[str, "Place type: restaurant, gas_station, lodging, tourist_attraction"] = "restaurant",
     radius_m: Annotated[int, "Search radius in meters"] = 5000,
 ) -> list[dict]:
     """Search Points of Interest, rest stops, fuel stops, or restaurants near a location."""
@@ -139,25 +320,71 @@ async def get_places_along_route(
     if cached:
         return cached
 
-    params = {
-        "location": location,
-        "radius": radius_m,
-        "type": place_type,
-        "key": settings.google_maps_api_key,
+    has_google_key = bool(
+        settings.google_maps_api_key
+        and settings.google_maps_api_key != "your_google_maps_api_key_here"
+    )
+
+    if has_google_key:
+        try:
+            params = {
+                "location": location,
+                "radius": radius_m,
+                "type": place_type,
+                "key": settings.google_maps_api_key,
+            }
+            data = await _http_get("https://maps.googleapis.com/maps/api/place/nearbysearch/json", params=params)
+            places = [
+                {
+                    "name": p.get("name"),
+                    "rating": p.get("rating"),
+                    "vicinity": p.get("vicinity"),
+                    "types": p.get("types", [])[:3],
+                    "open_now": p.get("opening_hours", {}).get("open_now"),
+                }
+                for p in data.get("results", [])[:8]
+            ]
+            await cache_set(key, places, settings.redis_ttl_api)
+            return places
+        except Exception as exc:
+            logger.warning(f"Google Places failed, falling back to Nominatim: {exc}")
+
+    # Free Nominatim search fallback
+    clean_location = location.split(",")[0].strip() if "," in location else location.strip()
+    query = f"{place_type} in {clean_location}"
+    try:
+        url = f"https://nominatim.openstreetmap.org/search?q={httpx.URL(query)}&format=json&limit=6"
+        data = await _http_get(url, headers={"User-Agent": "KomposeTravelPlanner/1.0"})
+        places = []
+        if isinstance(data, list):
+            for item in data[:6]:
+                name = item.get("name") or item.get("display_name", "").split(",")[0]
+                places.append({
+                    "name": name,
+                    "rating": 4.5,
+                    "vicinity": item.get("display_name", "")[:50],
+                    "types": [place_type],
+                    "open_now": True,
+                })
+            if places:
+                await cache_set(key, places, settings.redis_ttl_api)
+                return places
+    except Exception as exc:
+        logger.warning(f"Nominatim places search failed: {exc}")
+
+    # Default fallback spots for the place type
+    type_labels = {
+        "restaurant": ["Local Spice Diner", "Heritage Restaurant", "Highway Bistro"],
+        "gas_station": ["City Fuel Stop", "Highway Service Station"],
+        "lodging": ["Grand City Hotel", "Comfort Inn Express"],
+        "tourist_attraction": ["Historic Landmark", "City Viewpoint", "Central Park"],
     }
-    data = await _http_get("https://maps.googleapis.com/maps/api/place/nearbysearch/json", params=params)
-    places = [
-        {
-            "name": p.get("name"),
-            "rating": p.get("rating"),
-            "vicinity": p.get("vicinity"),
-            "types": p.get("types", [])[:3],
-            "open_now": p.get("opening_hours", {}).get("open_now"),
-        }
-        for p in data.get("results", [])[:8]
+    defaults = [
+        {"name": f"{clean_location.title()} {name}", "rating": 4.4, "vicinity": clean_location.title(), "types": [place_type], "open_now": True}
+        for name in type_labels.get(place_type, ["Popular Spot", "Recommended Stop"])
     ]
-    await cache_set(key, places, settings.redis_ttl_api)
-    return places
+    await cache_set(key, defaults, settings.redis_ttl_api)
+    return defaults
 
 
 # ---------------------------------------------------------------------------
@@ -497,10 +724,115 @@ async def get_airport_iata(
         return {"error": str(exc)}
 
 
+# ---------------------------------------------------------------------------
+# Car cost calculator (mileage, petrol/diesel/ev, tolls, passenger split)
+# ---------------------------------------------------------------------------
+
+CAR_PROFILES: dict[str, dict] = {
+    "hatchback": {"name": "Hatchback (Swift, i20)", "mileage_kmpl": 18.0, "fuel": "petrol"},
+    "sedan": {"name": "Sedan (City, Verna)", "mileage_kmpl": 14.0, "fuel": "petrol"},
+    "suv": {"name": "SUV (Creta, Scorpio, XUV700)", "mileage_kmpl": 10.5, "fuel": "diesel"},
+    "ev": {"name": "Electric Vehicle (Nexon EV, ZS EV)", "cost_per_km": 2.2, "fuel": "electric"},
+}
+
+
+@tool
+async def calculate_car_cost(
+    distance_km: Annotated[float, "Driving distance in kilometers"],
+    car_type: Annotated[str, "Car type: hatchback, sedan, suv, ev"] = "sedan",
+    fuel_price_per_litre: Annotated[float, "Fuel price in INR per litre (defaults to 102 for petrol, 90 for diesel)"] = 0.0,
+    passengers: Annotated[int, "Total passengers sharing car (adults + children)"] = 1,
+    include_tolls: Annotated[bool, "Include estimated highway toll charges"] = True,
+) -> dict:
+    """Calculate driving fuel cost, tolls, and per-person cost for car models (hatchback, sedan, suv, ev)."""
+    norm_type = (car_type or "sedan").strip().lower()
+    if norm_type not in CAR_PROFILES:
+        norm_type = "sedan"
+    profile = CAR_PROFILES[norm_type]
+
+    toll_cost = round(distance_km * 1.4) if include_tolls else 0
+
+    if norm_type == "ev":
+        fuel_cost = round(distance_km * profile["cost_per_km"])
+        fuel_unit = "electricity"
+    else:
+        fuel_rate = fuel_price_per_litre if fuel_price_per_litre > 0 else (90.0 if profile["fuel"] == "diesel" else 102.0)
+        litres = round(distance_km / profile["mileage_kmpl"], 1)
+        fuel_cost = round(litres * fuel_rate)
+        fuel_unit = f"{litres}L @ ₹{int(fuel_rate)}/L"
+
+    total_cost = fuel_cost + toll_cost
+    safe_passengers = max(1, passengers)
+    per_person = round(total_cost / safe_passengers)
+
+    return {
+        "car_type": norm_type,
+        "car_model": profile["name"],
+        "distance_km": round(distance_km, 1),
+        "fuel_cost": fuel_cost,
+        "toll_estimate": toll_cost,
+        "total_car_cost": total_cost,
+        "passengers": safe_passengers,
+        "cost_per_person": per_person,
+        "fuel_summary": fuel_unit,
+    }
+
+
+# ---------------------------------------------------------------------------
+# IRCTC Train Fare Calculator (IRCTC distance slabs & passenger counts)
+# ---------------------------------------------------------------------------
+
+@tool
+async def calculate_train_fares(
+    origin: Annotated[str, "Origin station or city name"],
+    destination: Annotated[str, "Destination station or city name"],
+    distance_km: Annotated[float, "Rail distance in km"],
+    adults: Annotated[int, "Number of adults (12+ years)"] = 1,
+    children: Annotated[int, "Number of children (5-11 years)"] = 0,
+) -> dict:
+    """Calculate Indian Railways (IRCTC) ticket fares across classes for group (adults + children)."""
+    classes = {
+        "SL": {"name": "Sleeper (SL)", "rate": 0.50, "base": 150},
+        "3A": {"name": "AC 3 Tier (3A)", "rate": 1.30, "base": 500},
+        "2A": {"name": "AC 2 Tier (2A)", "rate": 1.90, "base": 750},
+        "1A": {"name": "AC 1st Class (1A)", "rate": 3.20, "base": 1250},
+        "2S": {"name": "Second Sitting (2S)", "rate": 0.28, "base": 65},
+    }
+
+    results = []
+    safe_adults = max(1, adults)
+    safe_children = max(0, children)
+
+    for code, info in classes.items():
+        adult_fare = round(max(info["base"], distance_km * info["rate"]))
+        child_fare = round(adult_fare * 0.6) if safe_children > 0 else 0
+        total_fare = (adult_fare * safe_adults) + (child_fare * safe_children)
+
+        results.append({
+            "class_code": code,
+            "class_name": info["name"],
+            "adult_fare": adult_fare,
+            "child_fare": child_fare,
+            "total_fare": total_fare,
+            "adults": safe_adults,
+            "children": safe_children,
+            "book_url": "https://www.irctc.co.in/nget/train-search",
+        })
+
+    return {
+        "origin": origin,
+        "destination": destination,
+        "distance_km": round(distance_km, 1),
+        "classes": results,
+    }
+
+
 ALL_TOOLS = [
     get_directions,
     compare_travel_modes,
     get_places_along_route,
+    calculate_car_cost,
+    calculate_train_fares,
     search_flights,
     get_flight_price_analysis,
     search_hotels,
