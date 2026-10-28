@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+from datetime import date, timedelta
 from typing import Annotated, Any
 
 import httpx
@@ -619,7 +620,7 @@ async def search_hotels(
 
 
 # ---------------------------------------------------------------------------
-# Apify scrape tool (MMT/Goibibo + OYO budget listings)
+# Apify scrape tool (Google Hotels budget listings)
 # ---------------------------------------------------------------------------
 
 @tool
@@ -628,7 +629,7 @@ async def scrape_budget_listings(
     check_in: Annotated[str, "Check-in date YYYY-MM-DD"],
 ) -> list[dict]:
     """
-    Fetch budget hotel/accommodation listings from MakeMyTrip/Goibibo and OYO via Apify.
+    Fetch budget hotel/accommodation listings from Google Hotels via Apify.
     Returns display-only data with outbound links. No booking is performed on their behalf.
     Prices shown as 'starting from X — check current price' with source link.
     """
@@ -637,13 +638,17 @@ async def scrape_budget_listings(
     if cached:
         return cached
 
-    # Apify actor: apify/booking-scraper or custom actor for MMT/OYO
+    # Apify actor: Google Hotels search for one night from check_in, priced in INR
     # We use a lightweight approach: actor run with small result set
-    apify_url = "https://api.apify.com/v2/acts/maxcopell~booking-scraper/runs"
+    apify_url = "https://api.apify.com/v2/acts/johnvc~google-hotels-search-scraper/runs"
     headers = {"Authorization": f"Bearer {settings.apify_api_token}"}
+    check_out = (date.fromisoformat(check_in) + timedelta(days=1)).isoformat()
     payload = {
-        "startUrls": [{"url": f"https://www.makemytrip.com/hotels/hotel-listing/?checkin={check_in}&checkout={check_in}&city={destination}"}],
-        "maxResults": 8,
+        "q": f"hotels in {destination}",
+        "check_in_date": check_in,
+        "check_out_date": check_out,
+        "currency": "INR",
+        "max_pages": 1,
     }
 
     try:
@@ -671,15 +676,20 @@ async def scrape_budget_listings(
             )
             items = dataset_resp.json()
 
+        # One dataset item per results page; the hotels are in its "properties" list
+        properties = [
+            p for page in items for p in (page.get("properties") or [])
+            if (p.get("rate_per_night") or {}).get("extracted_lowest")
+        ]
         listings = []
-        for item in items[:8]:
+        for item in properties[:8]:
             listings.append({
                 "name": item.get("name", "Unknown Property"),
-                "price_starting_from": item.get("price"),
+                "price_starting_from": item["rate_per_night"]["extracted_lowest"],
                 "currency": "INR",
-                "rating": item.get("rating"),
-                "source": "MakeMyTrip (via Apify)",
-                "source_url": item.get("url", "https://www.makemytrip.com"),
+                "rating": item.get("overall_rating"),
+                "source": "Google Hotels (via Apify)",
+                "source_url": item.get("link", "https://www.google.com/travel/hotels"),
                 "disclaimer": "Starting price only. Check current rate and availability at source before booking.",
                 "bookable": False,
             })
